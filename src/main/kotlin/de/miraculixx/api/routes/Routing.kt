@@ -26,6 +26,7 @@ fun Application.configureRouting() {
         }
 
         routingAuthentication()
+        routingIOT()
     }
 }
 
