@@ -11,12 +11,6 @@ import kotlinx.serialization.Serializable
 
 fun Application.configureRouting() {
     routing {
-        install(Sessions) {
-            cookie<DiscordSession>("SESSION-DISCORD") {
-
-            }
-        }
-
         install(ContentNegotiation) {
             this.json()
         }
@@ -29,10 +23,3 @@ fun Application.configureRouting() {
         routingIOT()
     }
 }
-
-@Serializable
-data class DiscordSession(
-    val id: Long,
-    val username: @ParameterName("global_name") String,
-    val avatar: String
-)

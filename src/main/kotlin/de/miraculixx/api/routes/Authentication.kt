@@ -1,6 +1,8 @@
 package de.miraculixx.api.routes
 
 import de.miraculixx.api.client
+import de.miraculixx.api.data.Authentication
+import de.miraculixx.api.data.Authentication.DiscordSession
 import de.miraculixx.api.isProduction
 import de.miraculixx.api.json
 import de.miraculixx.api.logger
@@ -13,6 +15,7 @@ import io.ktor.server.routing.*
 import io.ktor.server.sessions.*
 import kotlinx.serialization.Serializable
 import java.io.File
+import java.net.URLDecoder
 
 
 /**
@@ -22,21 +25,23 @@ fun Routing.routingAuthentication() {
     val testingRedirect = "http%3A%2F%2Flocalhost%3A8080%2Fauth%2Fcallback"
     val productionRedirect = "https%3A%2F%2Fapi.miraculixx.de%2Fauth%2Fcallback"
     val discordRequest = "https://discord.com/oauth2/authorize?client_id=1325239668739932190&response_type=code&redirect_uri=${if (isProduction) productionRedirect else testingRedirect}&scope=identify"
-    val testingReturn = "http://localhost:3000"
-    val productionReturn = "https://miraculixx.de"
+    val returnTarget = if (isProduction) "https://miraculixx.de" else "http://localhost:3000"
 
     val credentials = json.decodeFromString<DcCredentials>(File("config/discord-credentials.json").readText())
 
+    suspend fun RoutingContext.respondUnauthorized(prev: String?) {
+        call.respondRedirect("$returnTarget/auth/failed${if (prev != null) "?state=$prev" else ""}")
+    }
+
     route("auth") {
-        get("login/{previous}") {
-            val previous = call.parameters["previous"] ?: "%2F" // URL encoded "/"
+        get("login") {
+            val previous = call.parameters["state"] ?: "%2F" // URL encoded "/"
             call.respondRedirect("$discordRequest&state=$previous")
         }
 
         get("callback") {
-            val returnTarget = if (isProduction) productionReturn else testingReturn
-            val prev = call.parameters["state"] ?: return@get call.respondRedirect("/") // Unauthorized
-            val code = call.parameters["code"] ?: return@get call.respondRedirect("$returnTarget/auth/failed")
+            val prev = call.parameters["state"] ?: return@get respondUnauthorized(null)
+            val code = call.parameters["code"] ?: return@get respondUnauthorized(prev)
 
             // Exchange code for token
             val response = try {
@@ -47,17 +52,17 @@ fun Routing.routingAuthentication() {
                 }.body<DcOAuthCallback>()
             } catch (e: Exception) {
                 logger.debug("Failed to exchange code for token\nReason: ${e.message}")
-                return@get call.respondRedirect("$returnTarget/auth/failed")
+                return@get respondUnauthorized(prev)
             }
-            if (response.scope != "identify") return@get call.respondRedirect("$returnTarget/auth/failed")
+            if (response.scope != "identify") return@get respondUnauthorized(prev)
 
             // Get user data & create session
             val userData = client.get("https://discord.com/api/users/@me") {
                 bearerAuth(response.access_token)
             }.body<DiscordSession>()
-            call.sessions.set(userData)
+            val token = Authentication.setSession(userData)
 
-            call.respondRedirect((if (isProduction) testingReturn else productionReturn) + prev)
+            call.respondRedirect("$returnTarget/auth/callback?state=$prev&token=$token")
         }
     }
 }
@@ -68,13 +73,7 @@ data class DcCredentials(
     val clientSecret: String
 )
 
-@Serializable
-data class DcOAuthExchange(
-    val grant_type: String = "authorization_code",
-    val code: String,
-    val redirect_uri: String
-)
-
+@Suppress("PropertyName")
 @Serializable
 data class DcOAuthCallback(
     val access_token: String,

@@ -13,6 +13,7 @@ fun Application.configureLimiting() {
         allowMethod(HttpMethod.Put)
         allowHeaders { true } // Allow any headers
         allowHost("miraculixx.de", listOf("http", "https", "ws", "wss"))
+        allowHost("localhost:3000", listOf("http", "https", "ws", "wss"))
         // anyHost()
     }
 
