@@ -32,6 +32,12 @@ fun Routing.routingIOT() {
                 call.respond(characters)
             }
 
+            get("is-editor") {
+                val token = call.request.header("Authorization") ?: return@get respondUnauthorized()
+                val session = Authentication.getSession(token) ?: return@get respondUnauthorized()
+                call.respond(IOT.isEditor(session.id))
+            }
+
             route("audio") {
                 get("{character}/{id}") {
                     val token = call.request.header("Authorization") ?: return@get respondUnauthorized()

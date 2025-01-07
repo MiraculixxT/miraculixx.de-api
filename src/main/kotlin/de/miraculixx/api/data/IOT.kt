@@ -79,6 +79,10 @@ object IOT {
         return voiceData.characters.values.filter { dcID in voiceEditor || dcID in it.editor }
     }
 
+    fun isEditor(dcID: Long): Boolean {
+        return dcID in voiceEditor
+    }
+
     @Serializable
     data class VoiceData(
         val characters: Map<String, VoiceCharacter>
