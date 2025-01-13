@@ -1,16 +1,19 @@
 package de.miraculixx.api.data
 
 import de.miraculixx.api.json
+import de.miraculixx.api.jsonPretty
 import io.github.irgaly.kfswatch.KfsDirectoryWatcher
 import io.github.irgaly.kfswatch.KfsDirectoryWatcherEvent
 import io.github.irgaly.kfswatch.KfsEvent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import org.slf4j.LoggerFactory
 import java.io.File
+import kotlin.time.Duration.Companion.seconds
 
 object IOT {
     val logger = LoggerFactory.getLogger("IOT")
@@ -25,9 +28,12 @@ object IOT {
     private var voiceEditor: Set<Long>
 
     init {
+        voiceDataFile.parentFile.mkdirs()
         if (!voiceDataFile.exists()) {
-            voiceDataFile.mkdirs()
-            voiceDataFile.writeText(json.encodeToString(VoiceData(emptyMap())))
+            voiceDataFile.writeText(json.encodeToString(VoiceData(mutableMapOf())))
+        }
+        if (!voiceEditorFile.exists()) {
+            voiceEditorFile.writeText(json.encodeToString(emptySet<Long>()))
         }
 
         voiceData = json.decodeFromString<VoiceData>(voiceDataFile.readText())
@@ -38,14 +44,34 @@ object IOT {
             val logger = LoggerFactory.getLogger("FileWatcher")
             watcher.onEventFlow.collect { event: KfsDirectoryWatcherEvent ->
                 if (event.event != KfsEvent.Modify) return@collect
+                logger.info("Event received: {}", event)
                 when (event.path) {
-                    voiceDataFile.name -> voiceData = json.decodeFromString<VoiceData>(voiceDataFile.readText())
-                    voiceEditorFile.name -> voiceEditor = json.decodeFromString(voiceEditorFile.readText())
+                    voiceDataFile.name -> reloadData<VoiceData>(voiceDataFile) { voiceData = it }
+                    voiceEditorFile.name -> reloadData<Set<Long>>(voiceEditorFile) { voiceEditor = it }
                     else -> return@collect
                 }
                 logger.debug("Event received: {}", event)
             }
         }
+            }
+        }
+    }
+
+    private var reloadLock = false
+    private suspend inline fun <reified A> reloadData(file: File, consumer: (A) -> Unit) {
+        if (reloadLock) return
+        reloadLock = true
+        delay(3.seconds)
+        val data = try {
+            logger.info("Reloading data from ${file.name}")
+            logger.debug("Data: ${file.readText()}")
+            json.decodeFromString<A>(file.readText())
+        } catch (e: Exception) {
+            logger.error("Failed to reload data from ${file.name}\nReason: ${e.message}")
+            return
+        }
+        consumer(data)
+        reloadLock = false
     }
 
     /**
@@ -85,7 +111,7 @@ object IOT {
 
     @Serializable
     data class VoiceData(
-        val characters: Map<String, VoiceCharacter>
+        val characters: MutableMap<String, VoiceCharacter>
     )
 
     @Serializable
