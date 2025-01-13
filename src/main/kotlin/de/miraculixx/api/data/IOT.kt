@@ -120,15 +120,15 @@ object IOT {
 
     @Serializable
     data class VoiceData(
-        val characters: MutableMap<String, VoiceCharacter>
+        val characters: MutableMap<String, VoiceCharacter> = mutableMapOf()
     )
 
     @Serializable
     data class VoiceCharacter(
-        val id: String,
-        val name: String,
-        val description: String,
-        val editor: Set<Long>,
-        val texts: List<String>
+        val id: String = "unknown",
+        val name: String = "Unknown",
+        val description: String = "Unknown",
+        val editor: Set<Long> = emptySet(),
+        val texts: List<String> = emptyList()
     )
 }

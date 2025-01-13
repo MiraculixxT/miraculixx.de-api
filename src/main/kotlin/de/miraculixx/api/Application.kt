@@ -11,7 +11,7 @@ import io.ktor.server.application.*
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 
-val isProduction = false
+val isProduction = System.getenv("PRODUCTION") == "true"
 val logger = LoggerFactory.getLogger("MAPI")
 val json = Json {
     ignoreUnknownKeys = true
@@ -19,6 +19,7 @@ val json = Json {
 val jsonPretty = Json {
     prettyPrint = true
     ignoreUnknownKeys = true
+    encodeDefaults = true
 }
 val client = HttpClient(CIO) {
     install(ContentNegotiation) {
