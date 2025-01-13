@@ -16,6 +16,10 @@ val logger = LoggerFactory.getLogger("MAPI")
 val json = Json {
     ignoreUnknownKeys = true
 }
+val jsonPretty = Json {
+    prettyPrint = true
+    ignoreUnknownKeys = true
+}
 val client = HttpClient(CIO) {
     install(ContentNegotiation) {
         json(json)
