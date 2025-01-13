@@ -50,9 +50,6 @@ object IOT {
                     voiceEditorFile.name -> reloadData<Set<Long>>(voiceEditorFile) { voiceEditor = it }
                     else -> return@collect
                 }
-                logger.debug("Event received: {}", event)
-            }
-        }
             }
         }
     }
@@ -101,12 +98,24 @@ object IOT {
     /**
      * Get all characters the requester has access to
      */
-    fun getAllCharacters(dcID: Long): List<VoiceCharacter> {
-        return voiceData.characters.values.filter { dcID in voiceEditor || dcID in it.editor }
+    fun getAllCharacters(dcID: Long): Map<String, VoiceCharacter> {
+        return voiceData.characters.filter { dcID in voiceEditor || dcID in it.value.editor }
     }
 
     fun isEditor(dcID: Long): Boolean {
         return dcID in voiceEditor
+    }
+
+    fun editCharacter(data: VoiceCharacter, dcID: Long) {
+        if (dcID !in voiceEditor) return
+        voiceData.characters[data.id] = data
+        reloadLock = true
+        voiceDataFile.writeText(jsonPretty.encodeToString(voiceData))
+
+        CoroutineScope(Dispatchers.Default).launch {
+            delay(3.seconds)
+            reloadLock = false
+        }
     }
 
     @Serializable
@@ -116,6 +125,7 @@ object IOT {
 
     @Serializable
     data class VoiceCharacter(
+        val id: String,
         val name: String,
         val description: String,
         val editor: Set<Long>,

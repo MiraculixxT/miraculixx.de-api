@@ -2,6 +2,7 @@ package de.miraculixx.api.routes
 
 import de.miraculixx.api.data.Authentication
 import de.miraculixx.api.data.IOT
+import de.miraculixx.api.json
 import io.ktor.http.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
@@ -38,6 +39,22 @@ fun Routing.routingIOT() {
                 call.respond(IOT.isEditor(session.id))
             }
 
+            post("edit") {
+                val token = call.request.header("Authorization") ?: return@post respondUnauthorized()
+                val session = Authentication.getSession(token) ?: return@post respondUnauthorized()
+                if (!IOT.isEditor(session.id)) return@post call.respond(HttpStatusCode.Forbidden, "You are not allowed to edit characters")
+
+                try {
+                    val dataRaw = call.receiveText() // .receive<IOT.VoiceCharacter>() fails to parse
+                    val data = json.decodeFromString<IOT.VoiceCharacter>(dataRaw)
+                    IOT.editCharacter(data, session.id)
+                    call.respond(HttpStatusCode.OK)
+                } catch (e: Exception) {
+                    call.respond(HttpStatusCode.BadRequest, "Invalid data format - ${e.message}")
+                    e.printStackTrace()
+                }
+            }
+
             route("audio") {
                 get("{character}/{id}") {
                     val token = call.request.header("Authorization") ?: return@get respondUnauthorized()
@@ -54,7 +71,7 @@ fun Routing.routingIOT() {
                     val session = Authentication.getSession(token) ?: return@post respondUnauthorized()
                     val characterName = call.parameters["character"] ?: return@post call.respond(HttpStatusCode.BadRequest, "Missing character header")
                     val audioID = call.parameters["id"] ?: return@post call.respond(HttpStatusCode.BadRequest, "Missing audio id")
-                    if (IOT.getAudio(characterName, audioID, session.id) == null) return@post call.respond(HttpStatusCode.NotFound, "Audio not found")
+                    if (IOT.getCharacter(characterName, session.id) == null) return@post call.respond(HttpStatusCode.NotFound, "Character not found")
 
                     // Check file size
                     val contentLength = call.request.header(HttpHeaders.ContentLength)?.toLongOrNull()
