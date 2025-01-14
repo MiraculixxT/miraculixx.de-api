@@ -63,6 +63,8 @@ fun Routing.routingIOT() {
                     val audioID = call.parameters["id"] ?: return@get call.respond(HttpStatusCode.BadRequest, "Missing audio id")
                     val audio = IOT.getAudio(characterName, audioID, session.id) ?: return@get call.respond(HttpStatusCode.NotFound, "Audio not found")
 
+                    call.response.header(HttpHeaders.ContentType, ContentType.Audio.MPEG.toString())
+                    call.response.header(HttpHeaders.ContentDisposition, "inline; filename=\"$characterName-$audioID.mp3\"")
                     call.respond(audio)
                 }
 
