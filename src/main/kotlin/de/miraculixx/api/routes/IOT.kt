@@ -63,9 +63,7 @@ fun Routing.routingIOT() {
                     val audioID = call.parameters["id"] ?: return@get call.respond(HttpStatusCode.BadRequest, "Missing audio id")
                     val audio = IOT.getAudio(characterName, audioID, session.id) ?: return@get call.respond(HttpStatusCode.NotFound, "Audio not found")
 
-                    call.response.header(HttpHeaders.ContentType, ContentType.Audio.MPEG.toString())
-                    call.response.header(HttpHeaders.ContentDisposition, "inline; filename=\"$characterName-$audioID.mp3\"")
-                    call.respond(audio)
+                    respondAudioFile(audio, "$characterName-$audioID.mp3")
                 }
 
                 post("{character}/{id}") {
@@ -81,10 +79,14 @@ fun Routing.routingIOT() {
                         return@post call.respond(HttpStatusCode.PayloadTooLarge, "File size exceeds the 10MB limit")
                     }
 
+                    // Check file name (soft check)
+                    val contentType = call.request.header("AudioType") ?: return@post call.respond(HttpStatusCode.BadRequest, "Missing audio type")
+                    if (contentType != "mp3" && contentType != "ogg") return@post call.respond(HttpStatusCode.BadRequest, "Invalid audio type")
+
                     // Receive audio data
                     val stream = call.receiveStream()
                     val audio = stream.readBytes().also { stream.close() }
-                    val targetFile = File("data/iot/voice/submits/$characterName/$audioID.mp3")
+                    val targetFile = File("data/iot/voice/submits/$characterName/$audioID.$contentType")
                     if (!targetFile.exists()) targetFile.parentFile.mkdirs()
                     targetFile.writeBytes(audio)
 
@@ -99,7 +101,7 @@ fun Routing.routingIOT() {
                     val audioID = call.parameters["id"] ?: return@get call.respond(HttpStatusCode.BadRequest, "Missing audio id")
                     val audio = IOT.getSubmitAudio(characterName, audioID, session.id) ?: return@get call.respond(HttpStatusCode.NotFound, "Audio not found")
 
-                    call.respond(audio)
+                    respondAudioFile(audio.first, "$characterName-$audioID-submission.${audio.second}")
                 }
             }
         }
@@ -108,4 +110,16 @@ fun Routing.routingIOT() {
 
 suspend fun RoutingContext.respondUnauthorized() {
     call.respond(HttpStatusCode.Unauthorized, "Unauthorized request. Login first")
+}
+
+suspend fun RoutingContext.respondAudioFile(audio: ByteArray, name: String) {
+    val audioType = when {
+        name.endsWith(".mp3") -> ContentType.Audio.MPEG
+        name.endsWith(".ogg") -> ContentType.Audio.OGG
+        else -> ContentType.Any
+    }
+
+    call.response.header(HttpHeaders.ContentType, audioType.toString())
+    call.response.header(HttpHeaders.ContentDisposition, "inline; filename=\"$name\"")
+    call.respond(audio)
 }

@@ -88,11 +88,13 @@ object IOT {
         return audio.readBytes()
     }
 
-    fun getSubmitAudio(characterName: String, audioID: String, dcID: Long): ByteArray? {
+    fun getSubmitAudio(characterName: String, audioID: String, dcID: Long): Pair<ByteArray, String>? {
         getCharacter(characterName, dcID) ?: return null
-        val audio = File(watcherFolder, "submits/$characterName/$audioID.mp3")
-        if (!audio.exists()) return null
-        return audio.readBytes()
+        val audioMp3 = File(watcherFolder, "submits/$characterName/$audioID.mp3")
+        if (audioMp3.exists()) return audioMp3.readBytes() to "mp3"
+        val audioOgg = File(watcherFolder, "submits/$characterName/$audioID.ogg")
+        if (audioOgg.exists()) return audioOgg.readBytes() to "ogg"
+        return null
     }
 
     /**
