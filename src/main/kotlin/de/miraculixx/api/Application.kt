@@ -3,6 +3,7 @@ package de.miraculixx.api
 import de.miraculixx.api.debug.configureSecurity
 import de.miraculixx.api.debug.configureSockets
 import de.miraculixx.api.routes.configureRouting
+import de.miraculixx.api.stats.Updater
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -32,6 +33,7 @@ fun main(args: Array<String>) {
 }
 
 fun Application.module() {
+    Updater.updateAll()
     configureLimiting()
     configureRouting()
 
