@@ -9,6 +9,7 @@ import io.ktor.client.request.parameter
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.delay
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -17,10 +18,11 @@ object Gathering {
     suspend fun refreshInstantGaming() {
         var page = 0
         val hits = mutableListOf<IGHitResponse>()
+        Updater.logger.info("--- Start scraping data ---")
         while (true) {
             val response = craftInstantGamingRequest(page)
             if (response.status.value != 200) {
-                Updater.logger.info("Failed to fetch page $page - status code: ${response.status.value}")
+                Updater.logger.info("Failed to fetch page $page - status code: ${response.status.value} (${response.bodyAsText()}).")
                 break
             }
             val data = response.body<IGResponse>()
@@ -29,7 +31,7 @@ object Gathering {
                 break
             }
             val waitTime = (3500..5500).random().milliseconds // wait 3.5 to 5.5 seconds
-            Updater.logger.info("Fetched page $page: ${data.hits.size} hits (${data.nbHits} total). Wait $waitTime...")
+            Updater.logger.info("Fetched page $page: ${data.hits.size} hits (${hits.size}/${data.nbHits} total). Wait $waitTime...")
             hits.addAll(data.hits)
             page++
             delay(waitTime)
@@ -38,6 +40,10 @@ object Gathering {
         val total = hits.size
         val available = hits.filter { it.has_stock }
         Updater.logger.info("Collected $total games (${"%.2f".format((available.size.toDouble() / total.coerceAtLeast(1)) * 100)}% in stock)")
+        if (available.isEmpty()) {
+            Updater.logger.warn("No games in stock - skipping database update")
+            return
+        }
 
         SQLInstant.saveSnapshot(available)
     }
@@ -62,11 +68,7 @@ object Gathering {
             header("Sec-Fetch-Mode", "cors")
             header("Sec-Fetch-Site", "cross-site")
 
-            setBody(IGQueryRequest(
-                "query=&hitsPerPage=60" +
-                        "&filters=(country_whitelist%3A%22DE%22%20OR%20country_whitelist%3A%22worldwide%22%20OR%20country_whitelist%3A%22WW%22)%20AND%20(NOT%20country_blacklist%3A%22DE%22)%20AND%20(product_type%3A%22game%22)&facets=%5B%22search_tags%22%5D" +
-                        "&maxValuesPerFacet=1000&page=$page"
-            ))
+            setBody("{\"params\":\"query=&hitsPerPage=1000&filters=(country_whitelist%3A%22DE%22%20OR%20country_whitelist%3A%22worldwide%22%20OR%20country_whitelist%3A%22WW%22)%20AND%20(NOT%20country_blacklist%3A%22DE%22)&facets=%5B%22search_tags%22%5D&maxValuesPerFacet=1000&page=$page\"}")
         }
     }
 }
