@@ -16,11 +16,17 @@ val isProduction = System.getenv("PRODUCTION") == "true"
 val logger = LoggerFactory.getLogger("MAPI")
 val json = Json {
     ignoreUnknownKeys = true
+    coerceInputValues = true
+    isLenient = true
+    explicitNulls = false
 }
 val jsonPretty = Json {
     prettyPrint = true
     ignoreUnknownKeys = true
     encodeDefaults = true
+    coerceInputValues = true
+    isLenient = true
+    explicitNulls = false
 }
 val client = HttpClient(CIO) {
     install(ContentNegotiation) {
