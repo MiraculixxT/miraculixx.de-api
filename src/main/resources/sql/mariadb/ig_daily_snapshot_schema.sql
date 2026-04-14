@@ -6,9 +6,10 @@ CREATE TABLE IF NOT EXISTS snapshot_item (
 
     name            VARCHAR(255) NOT NULL,
     platform        VARCHAR(64) NOT NULL,
-    type            VARCHAR(64) NOT NULL,
     seo_name        VARCHAR(255) NOT NULL,
 
+    is_sub          BOOLEAN NOT NULL,
+    is_prepaid      BOOLEAN NOT NULL,
     is_dlc          BOOLEAN NOT NULL,
     preorder        BOOLEAN NOT NULL,
     has_stock       BOOLEAN NOT NULL,
@@ -34,8 +35,8 @@ CREATE TABLE IF NOT EXISTS snapshot_stats (
     max_discount        INT NOT NULL,
 
     avg_abs_discount    DOUBLE NOT NULL,
-    min_abs_discount    INT NOT NULL,
-    max_abs_discount    INT NOT NULL,
+    min_abs_discount    DOUBLE NOT NULL,
+    max_abs_discount    DOUBLE NOT NULL,
 
     PRIMARY KEY (snapshot_ts)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;

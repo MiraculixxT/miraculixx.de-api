@@ -5,7 +5,6 @@ import de.miraculixx.api.stats.DatabaseStructure
 import de.miraculixx.api.stats.Updater
 import io.ktor.utils.io.InternalAPI
 import java.sql.Timestamp
-import kotlin.math.abs
 
 object SQLInstant : DatabaseStructure(Updater.logger, databaseCredentials.instant_gaming) {
 
@@ -18,32 +17,34 @@ object SQLInstant : DatabaseStructure(Updater.logger, databaseCredentials.instan
 
         val snapshotTimestamp = Timestamp(System.currentTimeMillis())
         val nonZeroDiscounts = games.map { it.discount }.filter { it > 0 }
-        val nonZeroAbsoluteDiscounts = nonZeroDiscounts.map { abs(it) }
+        val nonZeroAbsoluteDiscounts = games.map { (it.retail.toDoubleOrNull() ?: -999.0) - it.price }.filter { it > 0.0 }
 
         // Calculate all stats
         val gameCount = games.size
         val avgDiscount = games.map { it.discount.toDouble() }.average().takeIf { !it.isNaN() } ?: 0.0
         val minDiscount = nonZeroDiscounts.minOrNull() ?: 0
         val maxDiscount = nonZeroDiscounts.maxOrNull() ?: 0
-        val avgAbsDiscount = games.map { abs(it.discount).toDouble() }.average().takeIf { !it.isNaN() } ?: 0.0
-        val minAbsDiscount = nonZeroAbsoluteDiscounts.minOrNull() ?: 0
-        val maxAbsDiscount = nonZeroAbsoluteDiscounts.maxOrNull() ?: 0
+        val avgAbsDiscount = games.map { (it.retail.toDoubleOrNull() ?: -999.0) - it.price }.average().takeIf { !it.isNaN() } ?: 0.0
+        val minAbsDiscount = nonZeroAbsoluteDiscounts.minOrNull() ?: 0.0
+        val maxAbsDiscount = nonZeroAbsoluteDiscounts.maxOrNull() ?: 0.0
 
         buildStatement("START TRANSACTION").use { it.execute() }
         try {
             buildStatement(
                 """
-                    INSERT INTO _snapshot_item (
+                    INSERT INTO snapshot_item (
                         snapshot_ts, prod_id,
-                        name, platform, type, seo_name,
+                        name, platform, seo_name,
+                        is_sub, is_prepaid,
                         is_dlc, preorder, has_stock,
                         retail, price, discount
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON DUPLICATE KEY UPDATE
                         name = VALUES(name),
                         platform = VALUES(platform),
-                        type = VALUES(type),
                         seo_name = VALUES(seo_name),
+                        is_sub = VALUES(is_sub),
+                        is_prepaid = VALUES(is_prepaid),
                         is_dlc = VALUES(is_dlc),
                         preorder = VALUES(preorder),
                         has_stock = VALUES(has_stock),
@@ -57,14 +58,15 @@ object SQLInstant : DatabaseStructure(Updater.logger, databaseCredentials.instan
                     statement.setInt(2, game.prod_id)
                     statement.setString(3, game.name)
                     statement.setString(4, game.platform)
-                    statement.setString(5, game.type)
-                    statement.setString(6, game.seo_name)
-                    statement.setBoolean(7, game.is_dlc)
-                    statement.setBoolean(8, game.preorder)
-                    statement.setBoolean(9, game.has_stock)
-                    statement.setDouble(10, game.retail.toDoubleOrNull() ?: game.price)
-                    statement.setDouble(11, game.price)
-                    statement.setInt(12, game.discount)
+                    statement.setString(5, game.seo_name)
+                    statement.setBoolean(6, game.is_subscription)
+                    statement.setBoolean(7, game.is_prepaid)
+                    statement.setBoolean(8, game.is_dlc)
+                    statement.setBoolean(9, game.preorder)
+                    statement.setBoolean(10, game.has_stock)
+                    statement.setDouble(11, game.retail.toDoubleOrNull() ?: game.price)
+                    statement.setDouble(12, game.price)
+                    statement.setInt(13, game.discount)
                     statement.addBatch()
                 }
                 statement.executeBatch()
@@ -72,7 +74,7 @@ object SQLInstant : DatabaseStructure(Updater.logger, databaseCredentials.instan
 
             buildStatement(
                 """
-                    INSERT INTO _snapshot_stats (
+                    INSERT INTO snapshot_stats (
                         snapshot_ts,
                         game_count,
                         avg_discount, min_discount, max_discount,
@@ -94,8 +96,8 @@ object SQLInstant : DatabaseStructure(Updater.logger, databaseCredentials.instan
                 statement.setInt(4, minDiscount)
                 statement.setInt(5, maxDiscount)
                 statement.setDouble(6, avgAbsDiscount)
-                statement.setInt(7, minAbsDiscount)
-                statement.setInt(8, maxAbsDiscount)
+                statement.setDouble(7, minAbsDiscount)
+                statement.setDouble(8, maxAbsDiscount)
                 statement.executeUpdate()
             }
 

@@ -14,10 +14,29 @@ abstract class DatabaseStructure(
     val logger: Logger,
     val credentials: DatabaseCredentials
 ) {
+    init {
+        try {
+            Class.forName("org.mariadb.jdbc.Driver")
+        } catch (exception: ClassNotFoundException) {
+            throw IllegalStateException(
+                "MariaDB JDBC driver class not found. Ensure mariadb-java-client is present in the runtime image.",
+                exception
+            )
+        }
+    }
+
     private var connection: Connection = connect()
 
     private fun connect(): Connection {
-        val con = DriverManager.getConnection(credentials.url, credentials.user, credentials.password)
+        val con = try {
+            DriverManager.getConnection(credentials.url, credentials.user, credentials.password)
+        } catch (exception: Exception) {
+            val drivers = DriverManager.getDrivers().toList().joinToString { it.javaClass.name }
+            throw IllegalStateException(
+                "Failed to open JDBC connection for '${credentials.url}'. Registered drivers: [$drivers]",
+                exception
+            )
+        }
         if (con.isValid(0))
             logger.info(">> Connection established to MariaDB")
         else logger.warn(">> ERROR > MariaDB refused the connection")

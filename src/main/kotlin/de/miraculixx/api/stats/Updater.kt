@@ -1,6 +1,7 @@
 package de.miraculixx.api.stats
 
 import de.miraculixx.api.stats.ig.Gathering
+import de.miraculixx.api.stats.ig.SQLInstant
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -25,6 +26,8 @@ object Updater {
             logger.info(">> Daily updater already started")
             return
         }
+
+        SQLInstant
 
         schedulerScope.launch {
             val zone = ZoneId.systemDefault()

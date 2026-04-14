@@ -44,4 +44,6 @@ dependencies {
 
     // Filewatcher
     implementation("io.github.irgaly.kfswatch:kfswatch:1.3.0")
+
+    implementation("org.mariadb.jdbc:mariadb-java-client:3.1.3")
 }
