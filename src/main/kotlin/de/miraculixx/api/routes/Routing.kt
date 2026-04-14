@@ -1,5 +1,6 @@
 package de.miraculixx.api.routes
 
+import de.miraculixx.api.json
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.*
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
@@ -9,7 +10,7 @@ import io.ktor.server.routing.*
 fun Application.configureRouting() {
     routing {
         install(ContentNegotiation) {
-            this.json()
+            this.json(json)
         }
 
         get("/") {
