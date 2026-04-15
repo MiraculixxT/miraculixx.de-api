@@ -1,0 +1,428 @@
+openapi: 3.1.0
+info:
+  title: Miraculixx Instant Gaming Stats API
+  version: 1.0.0
+  description: External API contract used by the Next.js Instant Gaming analytics frontend.
+servers:
+  - url: https://api.miraculixx.de
+    description: Production
+paths:
+  /stats/ig/meta:
+    get:
+      summary: Fetch metadata for filters
+      operationId: getStatsIgMeta
+      responses:
+        '200':
+          description: Metadata for UI filter initialization
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetaResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /stats/ig/overview:
+    get:
+      summary: Fetch aggregated time-series overview metrics
+      operationId: getStatsIgOverview
+      parameters:
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - $ref: '#/components/parameters/Interval'
+        - $ref: '#/components/parameters/Platform'
+        - $ref: '#/components/parameters/IncludeDlc'
+        - $ref: '#/components/parameters/IncludePreorder'
+      responses:
+        '200':
+          description: Overview series payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OverviewResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /stats/ig/games/history:
+    get:
+      summary: Fetch price/discount history for a single game
+      operationId: getStatsIgGamesHistory
+      parameters:
+        - name: prodId
+          in: query
+          required: true
+          schema:
+            type: integer
+          description: Product ID to fetch history for.
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: Start date in YYYY-MM-DD (inclusive).
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: End date in YYYY-MM-DD (inclusive).
+      responses:
+        '200':
+          description: Game history payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GameHistoryResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /stats/ig/games:
+    get:
+      summary: Fetch paginated game rows for a snapshot
+      operationId: getStatsIgGames
+      parameters:
+        - $ref: '#/components/parameters/SnapshotTs'
+        - $ref: '#/components/parameters/Platform'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Prepaid'
+        - $ref: '#/components/parameters/IsDlc'
+        - $ref: '#/components/parameters/Preorder'
+        - $ref: '#/components/parameters/SortBy'
+        - $ref: '#/components/parameters/SortDir'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Games list payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GamesResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+components:
+  parameters:
+    From:
+      name: from
+      in: query
+      required: true
+      schema:
+        type: string
+        format: date
+      description: Start date in YYYY-MM-DD.
+    To:
+      name: to
+      in: query
+      required: true
+      schema:
+        type: string
+        format: date
+      description: End date in YYYY-MM-DD.
+    Interval:
+      name: interval
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/Interval'
+      description: Aggregation step.
+    Platform:
+      name: platform
+      in: query
+      required: false
+      schema:
+        type: string
+      description: Platform filter or all.
+    IncludeDlc:
+      name: includeDlc
+      in: query
+      required: false
+      schema:
+        type: boolean
+    IncludePreorder:
+      name: includePreorder
+      in: query
+      required: false
+      schema:
+        type: boolean
+    SnapshotTs:
+      name: snapshotTs
+      in: query
+      required: true
+      schema:
+        type: string
+        format: date-time
+      description: Snapshot timestamp. Date-only values may also be accepted.
+    Search:
+      name: search
+      in: query
+      required: false
+      schema:
+        type: string
+    Prepaid:
+      name: prepaid
+      in: query
+      required: false
+      schema:
+        type: boolean
+      description: Unified prepaid flag where subscription entries are treated as prepaid.
+    IsDlc:
+      name: isDlc
+      in: query
+      required: false
+      schema:
+        type: boolean
+    Preorder:
+      name: preorder
+      in: query
+      required: false
+      schema:
+        type: boolean
+    SortBy:
+      name: sortBy
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/GameSortField'
+    SortDir:
+      name: sortDir
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/SortDirection'
+    Page:
+      name: page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSize:
+      name: pageSize
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+  responses:
+    ErrorResponse:
+      description: API error payload
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+  schemas:
+    Interval:
+      type: string
+      enum: [day, week, month]
+    SortDirection:
+      type: string
+      enum: [asc, desc]
+    GameSortField:
+      type: string
+      enum: [discount, absDiscount, price, retail, name]
+    MetaResponse:
+      type: object
+      required: [platforms, earliestSnapshotTs, latestSnapshotTs, supportedIntervals]
+      properties:
+        platforms:
+          type: array
+          items:
+            type: string
+        earliestSnapshotTs:
+          type: string
+          format: date-time
+        latestSnapshotTs:
+          type: string
+          format: date-time
+        supportedIntervals:
+          type: array
+          items:
+            $ref: '#/components/schemas/Interval'
+    OverviewQuery:
+      type: object
+      required: [from, to, interval, platform, includeDlc, includePreorder]
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        interval:
+          $ref: '#/components/schemas/Interval'
+        platform:
+          type: string
+        includeDlc:
+          type: boolean
+        includePreorder:
+          type: boolean
+    OverviewPoint:
+      type: object
+      required:
+        - snapshotTs
+        - gameCount
+        - avgDiscount
+        - minDiscount
+        - maxDiscount
+        - avgAbsDiscount
+        - minAbsDiscount
+        - maxAbsDiscount
+      properties:
+        snapshotTs:
+          type: string
+          format: date-time
+        gameCount:
+          type: integer
+        avgDiscount:
+          type: number
+        minDiscount:
+          type: integer
+        maxDiscount:
+          type: integer
+        avgAbsDiscount:
+          type: number
+        minAbsDiscount:
+          type: number
+        maxAbsDiscount:
+          type: number
+    OverviewResponse:
+      type: object
+      required: [query, points]
+      properties:
+        query:
+          $ref: '#/components/schemas/OverviewQuery'
+        points:
+          type: array
+          items:
+            $ref: '#/components/schemas/OverviewPoint'
+    GamesQuery:
+      type: object
+      required: [snapshotTs, platform, sortBy, sortDir, page, pageSize]
+      properties:
+        snapshotTs:
+          type: string
+          format: date-time
+        platform:
+          type: string
+        search:
+          type: string
+        prepaid:
+          type: [boolean, 'null']
+        isDlc:
+          type: [boolean, 'null']
+        preorder:
+          type: [boolean, 'null']
+        sortBy:
+          $ref: '#/components/schemas/GameSortField'
+        sortDir:
+          $ref: '#/components/schemas/SortDirection'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+    GameRow:
+      type: object
+      required:
+        - snapshotTs
+        - prodId
+        - name
+        - platform
+        - seoName
+        - isSub
+        - isPrepaid
+        - isDlc
+        - preorder
+        - hasStock
+        - retail
+        - price
+        - discount
+        - absDiscount
+      properties:
+        snapshotTs:
+          type: string
+          format: date-time
+        prodId:
+          type: integer
+        name:
+          type: string
+        platform:
+          type: string
+        seoName:
+          type: string
+        isSub:
+          type: boolean
+        isPrepaid:
+          type: boolean
+        isDlc:
+          type: boolean
+        preorder:
+          type: boolean
+        hasStock:
+          type: boolean
+        retail:
+          type: number
+        price:
+          type: number
+        discount:
+          type: integer
+        absDiscount:
+          type: number
+    GamesResponse:
+      type: object
+      required: [query, rows, total, page, pageSize]
+      properties:
+        query:
+          $ref: '#/components/schemas/GamesQuery'
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/GameRow'
+        total:
+          type: integer
+        page:
+          type: integer
+        pageSize:
+          type: integer
+    GameHistoryPoint:
+      type: object
+      required: [snapshotTs, price, retail, discount, absDiscount]
+      properties:
+        snapshotTs:
+          type: string
+          format: date-time
+        price:
+          type: number
+        retail:
+          type: number
+        discount:
+          type: integer
+        absDiscount:
+          type: number
+    GameHistoryResponse:
+      type: object
+      required: [prodId, seoName, name, points]
+      properties:
+        prodId:
+          type: integer
+        seoName:
+          type: string
+        name:
+          type: string
+        points:
+          type: array
+          items:
+            $ref: '#/components/schemas/GameHistoryPoint'
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+

@@ -21,6 +21,9 @@ CREATE TABLE IF NOT EXISTS snapshot_item (
 
     PRIMARY KEY (snapshot_ts, prod_id),
     INDEX idx_snapshot_item_prod_id (prod_id),
+    INDEX idx_snapshot_item_snapshot_platform (snapshot_ts, platform),
+    INDEX idx_snapshot_item_snapshot_flags (snapshot_ts, is_dlc, preorder, is_prepaid, is_sub),
+    INDEX idx_snapshot_item_snapshot_name (snapshot_ts, name),
     INDEX idx_snapshot_item_discount (snapshot_ts, discount),
     INDEX idx_snapshot_item_abs_discount (snapshot_ts, abs_discount)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
