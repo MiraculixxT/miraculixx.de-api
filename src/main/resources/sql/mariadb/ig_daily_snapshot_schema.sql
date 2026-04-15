@@ -1,33 +1,51 @@
--- MariaDB schema for daily Instant Gaming scraping snapshots
+-- MariaDB schema for Instant Gaming scraping snapshots (official API)
 
-CREATE TABLE IF NOT EXISTS snapshot_item (
-    snapshot_ts     DATETIME(3) NOT NULL,
-    prod_id         INT NOT NULL,
+-- Stable per-game metadata. One row per game id.
+CREATE TABLE IF NOT EXISTS game_meta (
+    id              INT NOT NULL,
 
     name            VARCHAR(255) NOT NULL,
-    platform        VARCHAR(64) NOT NULL,
-    seo_name        VARCHAR(255) NOT NULL,
+    type            VARCHAR(64)  NOT NULL,
+    url             VARCHAR(512) NOT NULL,
 
-    is_sub          BOOLEAN NOT NULL,
-    is_prepaid      BOOLEAN NOT NULL,
-    is_dlc          BOOLEAN NOT NULL,
-    preorder        BOOLEAN NOT NULL,
-    has_stock       BOOLEAN NOT NULL,
+    categories      JSON         NOT NULL,
+    description     TEXT         NULL,
 
-    retail          DOUBLE NOT NULL,
-    price           DOUBLE NOT NULL,
-    discount        INT NOT NULL,
-    abs_discount    DOUBLE AS (retail - price) STORED,
+    topseller       BOOLEAN NOT NULL DEFAULT FALSE,
+    preorder        BOOLEAN NOT NULL DEFAULT FALSE,
+    giftcard        BOOLEAN NOT NULL DEFAULT FALSE,
+    in_stock        BOOLEAN NOT NULL DEFAULT TRUE,
+    steam_id        INT         NULL,
 
-    PRIMARY KEY (snapshot_ts, prod_id),
-    INDEX idx_snapshot_item_prod_id (prod_id),
-    INDEX idx_snapshot_item_snapshot_platform (snapshot_ts, platform),
-    INDEX idx_snapshot_item_snapshot_flags (snapshot_ts, is_dlc, preorder, is_prepaid, is_sub),
-    INDEX idx_snapshot_item_snapshot_name (snapshot_ts, name),
-    INDEX idx_snapshot_item_discount (snapshot_ts, discount),
-    INDEX idx_snapshot_item_abs_discount (snapshot_ts, abs_discount)
+    PRIMARY KEY (id),
+    INDEX idx_game_meta_name       (name),
+    INDEX idx_game_meta_type       (type),
+    INDEX idx_game_meta_flags      (preorder, giftcard, topseller, in_stock),
+    FULLTEXT INDEX ft_game_meta_name_description (name, description)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
 
+-- Per-snapshot price point. One row per (snapshot_ts, id).
+CREATE TABLE IF NOT EXISTS snapshot_prices (
+    snapshot_ts     DATETIME(3) NOT NULL,
+    id              INT         NOT NULL,
+
+    price           DOUBLE      NOT NULL,
+    retail          DOUBLE      NOT NULL,
+    discount        INT         NOT NULL,
+    abs_discount    DOUBLE AS (retail - price) STORED,
+
+    PRIMARY KEY (snapshot_ts, id),
+    INDEX idx_snapshot_prices_id                 (id),
+    INDEX idx_snapshot_prices_ts_discount        (snapshot_ts, discount),
+    INDEX idx_snapshot_prices_ts_abs_discount    (snapshot_ts, abs_discount),
+    INDEX idx_snapshot_prices_ts_price           (snapshot_ts, price),
+    INDEX idx_snapshot_prices_ts_retail          (snapshot_ts, retail),
+    CONSTRAINT fk_snapshot_prices_game
+        FOREIGN KEY (id) REFERENCES game_meta(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
+
+-- Aggregated per-snapshot statistics.
 CREATE TABLE IF NOT EXISTS snapshot_stats (
     snapshot_ts         DATETIME(3) NOT NULL,
 
@@ -43,17 +61,3 @@ CREATE TABLE IF NOT EXISTS snapshot_stats (
 
     PRIMARY KEY (snapshot_ts)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
-
-CREATE OR REPLACE VIEW snapshot_overview AS
-SELECT
-    s.snapshot_ts,
-    s.game_count,
-    s.avg_discount,
-    s.min_discount,
-    s.max_discount,
-    s.avg_abs_discount,
-    s.min_abs_discount,
-    s.max_abs_discount
-FROM snapshot_stats s
-ORDER BY s.snapshot_ts DESC;
-

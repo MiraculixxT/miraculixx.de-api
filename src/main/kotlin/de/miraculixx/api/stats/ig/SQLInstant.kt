@@ -1,9 +1,12 @@
 package de.miraculixx.api.stats.ig
 
 import de.miraculixx.api.data.databaseCredentials
+import de.miraculixx.api.json
 import de.miraculixx.api.stats.DatabaseStructure
 import de.miraculixx.api.stats.Updater
 import io.ktor.utils.io.InternalAPI
+import kotlinx.serialization.encodeToString
+import java.net.URI
 import java.sql.Timestamp
 import java.time.Instant
 import java.time.LocalDate
@@ -381,61 +384,89 @@ object SQLInstant : DatabaseStructure(Updater.logger, databaseCredentials.instan
 
         val snapshotTimestamp = Timestamp(System.currentTimeMillis())
         val nonZeroDiscounts = games.map { it.discount }.filter { it > 0 }
-        val nonZeroAbsoluteDiscounts = games.map { (it.retail.toDoubleOrNull() ?: -999.0) - it.price }.filter { it > 0.0 }
+        val nonZeroAbsoluteDiscounts = games.map { it.retail - it.price }.filter { it > 0.0 }
 
         // Calculate all stats
         val gameCount = games.size
         val avgDiscount = games.map { it.discount.toDouble() }.average().takeIf { !it.isNaN() } ?: 0.0
         val minDiscount = nonZeroDiscounts.minOrNull() ?: 0
         val maxDiscount = nonZeroDiscounts.maxOrNull() ?: 0
-        val avgAbsDiscount = games.map { (it.retail.toDoubleOrNull() ?: -999.0) - it.price }.average().takeIf { !it.isNaN() } ?: 0.0
+        val avgAbsDiscount = games.map { it.retail - it.price }.average().takeIf { !it.isNaN() } ?: 0.0
         val minAbsDiscount = nonZeroAbsoluteDiscounts.minOrNull() ?: 0.0
         val maxAbsDiscount = nonZeroAbsoluteDiscounts.maxOrNull() ?: 0.0
 
         buildStatement("START TRANSACTION").use { it.execute() }
         try {
+            // Add or update game meta
             buildStatement(
                 """
-                    INSERT INTO snapshot_item (
-                        snapshot_ts, prod_id,
-                        name, platform, seo_name,
-                        is_sub, is_prepaid,
-                        is_dlc, preorder, has_stock,
-                        retail, price, discount
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO game_meta (
+                        id, name, 
+                        type, url,
+                        categories, description,
+                        topseller, preorder, giftcard,
+                        in_stock, steam_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON DUPLICATE KEY UPDATE
                         name = VALUES(name),
-                        platform = VALUES(platform),
-                        seo_name = VALUES(seo_name),
-                        is_sub = VALUES(is_sub),
-                        is_prepaid = VALUES(is_prepaid),
-                        is_dlc = VALUES(is_dlc),
+                        type = VALUES(type),
+                        url = VALUES(url),
+                        categories = VALUES(categories),
+                        description = VALUES(description),
+                        topseller = VALUES(topseller),
                         preorder = VALUES(preorder),
-                        has_stock = VALUES(has_stock),
-                        retail = VALUES(retail),
-                        price = VALUES(price),
-                        discount = VALUES(discount)
+                        giftcard = VALUES(giftcard),
+                        in_stock = VALUES(in_stock),
+                        steam_id = VALUES(steam_id)
                 """.trimIndent()
             ).use { statement ->
                 games.forEach { game ->
-                    statement.setTimestamp(1, snapshotTimestamp)
-                    statement.setInt(2, game.prod_id)
-                    statement.setString(3, game.name)
-                    statement.setString(4, game.platform)
-                    statement.setString(5, game.seo_name)
-                    statement.setBoolean(6, game.is_subscription)
-                    statement.setBoolean(7, game.is_prepaid)
-                    statement.setBoolean(8, game.is_dlc)
-                    statement.setBoolean(9, game.preorder)
-                    statement.setBoolean(10, game.has_stock)
-                    statement.setDouble(11, game.retail.toDoubleOrNull() ?: game.price)
-                    statement.setDouble(12, game.price)
-                    statement.setInt(13, game.discount)
+                    statement.setInt(1, game.id)
+                    statement.setString(2, game.name)
+                    statement.setString(3, game.type)
+                    statement.setString(4, extractSeoSlug(game.url) ?: "undefined")
+                    statement.setString(5, json.encodeToString(game.category))
+                    statement.setString(6, game.short_description)
+                    statement.setBoolean(7, game.topseller)
+                    statement.setBoolean(8, game.preorder)
+                    statement.setBoolean(9, game.category.contains("Gift Cards"))
+                    statement.setBoolean(10, game.stock)
+                    statement.setInt(11, game.steam_id)
                     statement.addBatch()
                 }
                 statement.executeBatch()
             }
 
+            // Add price snapshot
+            buildStatement(
+                """
+                    INSERT INTO snapshot_prices (
+                        snapshot_ts,
+                        id,
+                        price,
+                        retail,
+                        discount
+                    ) VALUES (?, ?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE
+                        price = VALUES(price),
+                        retail = VALUES(retail),
+                        discount = VALUES(discount)
+                """.trimIndent()
+            ).use { statement ->
+                games.asSequence()
+                    .filter { it.stock }
+                    .forEach { game ->
+                        statement.setTimestamp(1, snapshotTimestamp)
+                        statement.setInt(2, game.id)
+                        statement.setDouble(3, game.price)
+                        statement.setDouble(4, game.retail)
+                        statement.setInt(5, game.discount)
+                        statement.addBatch()
+                    }
+                statement.executeBatch()
+            }
+
+            // Summed stats snapshot
             buildStatement(
                 """
                     INSERT INTO snapshot_stats (
@@ -472,5 +503,15 @@ object SQLInstant : DatabaseStructure(Updater.logger, databaseCredentials.instan
             runCatching { buildStatement("ROLLBACK").use { it.execute() } }
             logger.error("IG snapshot save failed", exception)
         }
+    }
+
+    private fun extractSeoSlug(url: String): String? {
+        val path = runCatching { URI(url).path }.getOrNull() ?: return null
+        val segment = path
+            .trim('/')
+            .split('/')
+            .firstOrNull { it.contains("-buy-") }
+            ?: return null
+        return segment.substringAfter("-buy-", missingDelimiterValue = "").takeIf { it.isNotBlank() }
     }
 }

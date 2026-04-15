@@ -17,37 +17,27 @@ data class IGResponse(
     val page: Int
 )
 
-/**
- * @param prod_id Game ID (on IG)
- * @param name Game name
- * @param platform Platform (e.g. "Steam", "epic",)
- * @param seo_name Used for URL building "/en/<id>-buy-<seo_name>"
- * @param is_dlc Whether this is a DLC or not
- * @param preorder Whether this is a preorder or not
- * @param retail Normal price (formatted as string, e.g. "19.99")
- * @param price Discounted price (formatted as double, e.g. 9.99)
- * @param discount Discount in percent (formatted as int, e.g. 50)
- */
 @Serializable
 data class IGHitResponse(
-    val prod_id: Int = -1,
+    val id: Int = -1,
     val name: String = "none",
-    val platform: String = "none",
-    val seo_name: String = "none",
+    val type: String = "none",
+    val url: String = "none",
+    val short_description: String = "none",
+    val category: Set<String> = emptySet(),
+    val steam_id: Int = -1,
 
-    @Serializable(with = ZeroOneBooleanSerializer::class)
-    val is_dlc: Boolean = false,
     @Serializable(with = ZeroOneBooleanSerializer::class)
     val preorder: Boolean = false,
     @Serializable(with = ZeroOneBooleanSerializer::class)
-    val is_prepaid: Boolean = false,
+    val stock: Boolean = false,
     @Serializable(with = ZeroOneBooleanSerializer::class)
-    val is_subscription: Boolean = false,
-    @Serializable(with = ZeroOneBooleanSerializer::class)
-    val has_stock: Boolean = false,
+    val topseller: Boolean = false,
 
-    val retail: String = "-1.00",
-    val price: Double = -1.0,
+    @Serializable(with = StringDoubleSerializer::class)
+    val retail: Double = -1.00,
+    @Serializable(with = StringDoubleSerializer::class)
+    val price: Double = -1.00,
     val discount: Int = -1
 )
 
@@ -68,6 +58,19 @@ object ZeroOneBooleanSerializer : KSerializer<Boolean> {
 
     override fun serialize(encoder: Encoder, value: Boolean) {
         encoder.encodeInt(if (value) 1 else 0)
+    }
+}
+
+object StringDoubleSerializer : KSerializer<Double> {
+    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("StringDouble", PrimitiveKind.STRING)
+
+    override fun deserialize(decoder: Decoder): Double {
+        val input = decoder.decodeString()
+        return input.toDoubleOrNull() ?: -1.0
+    }
+
+    override fun serialize(encoder: Encoder, value: Double) {
+        encoder.encodeString(value.toString())
     }
 }
 
