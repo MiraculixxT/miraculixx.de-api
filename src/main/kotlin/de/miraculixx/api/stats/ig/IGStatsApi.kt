@@ -39,7 +39,7 @@ enum class GameSortField {
 
 @Serializable
 data class MetaResponse(
-    val platforms: List<String>,
+    val types: List<String>,
     val earliestSnapshotTs: String,
     val latestSnapshotTs: String,
     val supportedIntervals: List<Interval>
@@ -50,9 +50,10 @@ data class OverviewQuery(
     val from: String,
     val to: String,
     val interval: Interval,
-    val platform: String,
-    val includeDlc: Boolean,
-    val includePreorder: Boolean
+    val type: String,
+    val onlyTopseller: Boolean,
+    val includePreorder: Boolean,
+    val includeGiftcard: Boolean
 )
 
 @Serializable
@@ -76,11 +77,12 @@ data class OverviewResponse(
 @Serializable
 data class GamesQuery(
     val snapshotTs: String,
-    val platform: String,
+    val type: String,
     val search: String? = null,
-    val prepaid: Boolean? = null,
-    val isDlc: Boolean? = null,
     val preorder: Boolean? = null,
+    val giftcard: Boolean? = null,
+    val topseller: Boolean? = null,
+    val inStock: Boolean? = null,
     val sortBy: GameSortField,
     val sortDir: SortDirection,
     val page: Int,
@@ -90,15 +92,17 @@ data class GamesQuery(
 @Serializable
 data class GameRow(
     val snapshotTs: String,
-    val prodId: Int,
+    val id: Int,
     val name: String,
-    val platform: String,
-    val seoName: String,
-    val isSub: Boolean,
-    val isPrepaid: Boolean,
-    val isDlc: Boolean,
+    val type: String,
+    val url: String,
+    val categories: List<String>,
+    val description: String?,
+    val topseller: Boolean,
     val preorder: Boolean,
-    val hasStock: Boolean,
+    val giftcard: Boolean,
+    val inStock: Boolean,
+    val steamId: Int?,
     val retail: Double,
     val price: Double,
     val discount: Int,
@@ -125,15 +129,17 @@ data class GameHistoryPoint(
 
 @Serializable
 data class GameHistoryResponse(
-    val prodId: Int,
-    val seoName: String,
+    val id: Int,
     val name: String,
+    val type: String,
+    val url: String,
     val points: List<GameHistoryPoint>
 )
 
 data class GameHistoryData(
     val name: String,
-    val seoName: String,
+    val type: String,
+    val url: String,
     val points: List<GameHistoryPoint>
 )
 
@@ -141,18 +147,20 @@ data class OverviewRequest(
     val from: LocalDate,
     val to: LocalDate,
     val interval: Interval,
-    val platform: String,
-    val includeDlc: Boolean,
-    val includePreorder: Boolean
+    val type: String,
+    val onlyTopseller: Boolean,
+    val includePreorder: Boolean,
+    val includeGiftcard: Boolean
 )
 
 data class GamesRequest(
     val snapshotTs: Timestamp,
-    val platform: String,
+    val type: String,
     val search: String?,
-    val prepaid: Boolean?,
-    val isDlc: Boolean?,
     val preorder: Boolean?,
+    val giftcard: Boolean?,
+    val topseller: Boolean?,
+    val inStock: Boolean?,
     val sortBy: GameSortField,
     val sortDir: SortDirection,
     val page: Int,
@@ -160,7 +168,7 @@ data class GamesRequest(
 )
 
 data class GameHistoryRequest(
-    val prodId: Int,
+    val id: Int,
     val from: LocalDate?,
     val to: LocalDate?
 )
@@ -182,9 +190,10 @@ object IGStatsApi {
             parsed.from.toString(),
             parsed.to.toString(),
             parsed.interval.name,
-            parsed.platform,
-            parsed.includeDlc.toString(),
-            parsed.includePreorder.toString()
+            parsed.type,
+            parsed.onlyTopseller.toString(),
+            parsed.includePreorder.toString(),
+            parsed.includeGiftcard.toString()
         ).joinToString("|")
 
         val points = IGStatsCache.remember("overview", key) { SQLInstant.fetchOverview(parsed) }
@@ -193,9 +202,10 @@ object IGStatsApi {
                 from = parsed.from.toString(),
                 to = parsed.to.toString(),
                 interval = parsed.interval,
-                platform = parsed.platform,
-                includeDlc = parsed.includeDlc,
-                includePreorder = parsed.includePreorder
+                type = parsed.type,
+                onlyTopseller = parsed.onlyTopseller,
+                includePreorder = parsed.includePreorder,
+                includeGiftcard = parsed.includeGiftcard
             ),
             points = points
         )
@@ -211,19 +221,13 @@ object IGStatsApi {
         val resolvedSnapshotTs = SQLInstant.resolveSnapshotTimestamp(rawSnapshotTs)
             ?: return call.respondApiError(HttpStatusCode.NotFound, "snapshot_not_found", "No matching snapshot found for snapshotTs=$rawSnapshotTs")
 
-        val platform = call.request.queryParameters["platform"]?.trim().orEmpty().ifBlank { "all" }
+        val type = call.request.queryParameters["type"]?.trim().orEmpty().ifBlank { "all" }
         val search = call.request.queryParameters["search"]?.trim()?.takeIf { it.isNotEmpty() }
-        val prepaidRaw = call.request.queryParameters["prepaid"]
-        val prepaid = if (prepaidRaw == null) null else parseBoolean(prepaidRaw)
-            ?: return call.respondApiError(HttpStatusCode.BadRequest, "invalid_query", "Invalid prepaid value")
 
-        val isDlcRaw = call.request.queryParameters["isDlc"]
-        val isDlc = if (isDlcRaw == null) null else parseBoolean(isDlcRaw)
-            ?: return call.respondApiError(HttpStatusCode.BadRequest, "invalid_query", "Invalid isDlc value")
-
-        val preorderRaw = call.request.queryParameters["preorder"]
-        val preorder = if (preorderRaw == null) null else parseBoolean(preorderRaw)
-            ?: return call.respondApiError(HttpStatusCode.BadRequest, "invalid_query", "Invalid preorder value")
+        val preorder = parseOptionalBoolean(call, "preorder") ?: return
+        val giftcard = parseOptionalBoolean(call, "giftcard") ?: return
+        val topseller = parseOptionalBoolean(call, "topseller") ?: return
+        val inStock = parseOptionalBoolean(call, "inStock") ?: return
 
         val sortBy = when (call.request.queryParameters["sortBy"]?.trim()?.lowercase()) {
             null, "", "discount" -> GameSortField.Discount
@@ -249,11 +253,12 @@ object IGStatsApi {
 
         val req = GamesRequest(
             snapshotTs = resolvedSnapshotTs,
-            platform = platform,
+            type = type,
             search = search,
-            prepaid = prepaid,
-            isDlc = isDlc,
-            preorder = preorder,
+            preorder = preorder.value,
+            giftcard = giftcard.value,
+            topseller = topseller.value,
+            inStock = inStock.value,
             sortBy = sortBy,
             sortDir = sortDir,
             page = page,
@@ -262,11 +267,12 @@ object IGStatsApi {
 
         val key = listOf(
             req.snapshotTs.time.toString(),
-            req.platform,
+            req.type,
             req.search.orEmpty(),
-            req.prepaid?.toString() ?: "null",
-            req.isDlc?.toString() ?: "null",
             req.preorder?.toString() ?: "null",
+            req.giftcard?.toString() ?: "null",
+            req.topseller?.toString() ?: "null",
+            req.inStock?.toString() ?: "null",
             req.sortBy.name,
             req.sortDir.name,
             req.page.toString(),
@@ -277,11 +283,12 @@ object IGStatsApi {
         val response = GamesResponse(
             query = GamesQuery(
                 snapshotTs = req.snapshotTs.toInstant().toString(),
-                platform = req.platform,
+                type = req.type,
                 search = req.search,
-                prepaid = req.prepaid,
-                isDlc = req.isDlc,
                 preorder = req.preorder,
+                giftcard = req.giftcard,
+                topseller = req.topseller,
+                inStock = req.inStock,
                 sortBy = req.sortBy,
                 sortDir = req.sortDir,
                 page = req.page,
@@ -298,10 +305,10 @@ object IGStatsApi {
     }
 
     suspend fun history(call: ApplicationCall) {
-        val prodIdRaw = call.request.queryParameters["prodId"]
-            ?: return call.respondApiError(HttpStatusCode.BadRequest, "invalid_query", "Missing required query parameter: prodId")
-        val prodId = prodIdRaw.toIntOrNull()
-            ?: return call.respondApiError(HttpStatusCode.BadRequest, "invalid_query", "Invalid prodId value")
+        val idRaw = call.request.queryParameters["id"] ?: call.request.queryParameters["prodId"]
+            ?: return call.respondApiError(HttpStatusCode.BadRequest, "invalid_query", "Missing required query parameter: id")
+        val id = idRaw.toIntOrNull()
+            ?: return call.respondApiError(HttpStatusCode.BadRequest, "invalid_query", "Invalid id value")
 
         val fromRaw = call.request.queryParameters["from"]
         val from: LocalDate? = if (fromRaw != null) {
@@ -319,15 +326,21 @@ object IGStatsApi {
             return call.respondApiError(HttpStatusCode.BadRequest, "invalid_query", "to must be equal or after from")
         }
 
-        val req = GameHistoryRequest(prodId = prodId, from = from, to = to)
-        val key = listOf(req.prodId.toString(), req.from?.toString() ?: "null", req.to?.toString() ?: "null").joinToString("|")
+        val req = GameHistoryRequest(id = id, from = from, to = to)
+        val key = listOf(req.id.toString(), req.from?.toString() ?: "null", req.to?.toString() ?: "null").joinToString("|")
 
         val data = IGStatsCache.remember("history", key) { SQLInstant.fetchGameHistory(req) }
         if (data == null) {
-            return call.respondApiError(HttpStatusCode.NotFound, "game_not_found", "No history found for prodId=$prodId")
+            return call.respondApiError(HttpStatusCode.NotFound, "game_not_found", "No history found for id=$id")
         }
 
-        val response = GameHistoryResponse(prodId = req.prodId, seoName = data.seoName, name = data.name, points = data.points)
+        val response = GameHistoryResponse(
+            id = req.id,
+            name = data.name,
+            type = data.type,
+            url = data.url,
+            points = data.points
+        )
 
         call.response.headers.append(HttpHeaders.CacheControl, "public, max-age=120")
         call.respond(response)
@@ -353,23 +366,40 @@ object IGStatsApi {
             "month" -> Interval.Month
             else -> return call.respondApiError(HttpStatusCode.BadRequest, "invalid_query", "Invalid interval value").let { null }
         }
-        val platform = call.request.queryParameters["platform"]?.trim().orEmpty().ifBlank { "all" }
-        val includeDlcRaw = call.request.queryParameters["includeDlc"]
-        val includeDlc = if (includeDlcRaw == null) true else parseBoolean(includeDlcRaw)
-            ?: return call.respondApiError(HttpStatusCode.BadRequest, "invalid_query", "Invalid includeDlc value").let { null }
+        val type = call.request.queryParameters["type"]?.trim().orEmpty().ifBlank { "all" }
+
+        val onlyTopsellerRaw = call.request.queryParameters["onlyTopseller"]
+        val onlyTopseller = if (onlyTopsellerRaw == null) false else parseBoolean(onlyTopsellerRaw)
+            ?: return call.respondApiError(HttpStatusCode.BadRequest, "invalid_query", "Invalid onlyTopseller value").let { null }
 
         val includePreorderRaw = call.request.queryParameters["includePreorder"]
         val includePreorder = if (includePreorderRaw == null) true else parseBoolean(includePreorderRaw)
             ?: return call.respondApiError(HttpStatusCode.BadRequest, "invalid_query", "Invalid includePreorder value").let { null }
 
+        val includeGiftcardRaw = call.request.queryParameters["includeGiftcard"]
+        val includeGiftcard = if (includeGiftcardRaw == null) false else parseBoolean(includeGiftcardRaw)
+            ?: return call.respondApiError(HttpStatusCode.BadRequest, "invalid_query", "Invalid includeGiftcard value").let { null }
+
         return OverviewRequest(
             from = from,
             to = to,
             interval = interval,
-            platform = platform,
-            includeDlc = includeDlc,
-            includePreorder = includePreorder
+            type = type,
+            onlyTopseller = onlyTopseller,
+            includePreorder = includePreorder,
+            includeGiftcard = includeGiftcard
         )
+    }
+
+    private data class OptionalBool(val value: Boolean?)
+
+    private suspend fun parseOptionalBoolean(call: ApplicationCall, name: String): OptionalBool? {
+        val raw = call.request.queryParameters[name] ?: return OptionalBool(null)
+        val parsed = parseBoolean(raw) ?: run {
+            call.respondApiError(HttpStatusCode.BadRequest, "invalid_query", "Invalid $name value")
+            return null
+        }
+        return OptionalBool(parsed)
     }
 
     private fun parseBoolean(value: String): Boolean? {
@@ -384,5 +414,3 @@ object IGStatsApi {
         respond(status, ErrorEnvelope(ErrorDetail(code, message)))
     }
 }
-
-

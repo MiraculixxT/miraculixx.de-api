@@ -11,13 +11,6 @@ import kotlinx.serialization.json.JsonDecoder
 import kotlinx.serialization.json.JsonPrimitive
 
 @Serializable
-data class IGResponse(
-    val hits: List<IGHitResponse>,
-    val nbHits: Int,
-    val page: Int
-)
-
-@Serializable
 data class IGHitResponse(
     val id: Int = -1,
     val name: String = "none",

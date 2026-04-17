@@ -26,4 +26,3 @@ object IGStatsCache {
         return computed
     }
 }
-
