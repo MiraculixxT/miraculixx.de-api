@@ -29,6 +29,7 @@ object SQLInstant : DatabaseStructure(Updater.logger, databaseCredentials.instan
             Triple("idx_game_meta_type", "game_meta", "CREATE INDEX idx_game_meta_type ON game_meta(type)"),
             Triple("idx_game_meta_flags", "game_meta", "CREATE INDEX idx_game_meta_flags ON game_meta(preorder, giftcard, topseller, in_stock)"),
             Triple("idx_snapshot_prices_id", "snapshot_prices", "CREATE INDEX idx_snapshot_prices_id ON snapshot_prices(id)"),
+            Triple("idx_snapshot_prices_id_ts", "snapshot_prices", "CREATE INDEX idx_snapshot_prices_id_ts ON snapshot_prices(id, snapshot_ts)"),
             Triple("idx_snapshot_prices_ts_discount", "snapshot_prices", "CREATE INDEX idx_snapshot_prices_ts_discount ON snapshot_prices(snapshot_ts, discount)"),
             Triple("idx_snapshot_prices_ts_abs_discount", "snapshot_prices", "CREATE INDEX idx_snapshot_prices_ts_abs_discount ON snapshot_prices(snapshot_ts, abs_discount)"),
             Triple("idx_snapshot_prices_ts_price", "snapshot_prices", "CREATE INDEX idx_snapshot_prices_ts_price ON snapshot_prices(snapshot_ts, price)"),
@@ -108,8 +109,6 @@ object SQLInstant : DatabaseStructure(Updater.logger, databaseCredentials.instan
 
         val where = mutableListOf<String>()
         val args = mutableListOf<Any>()
-
-        where += "m.in_stock = true"
 
         val zone = ZoneId.systemDefault()
         val fromTs = Timestamp.from(request.from.atStartOfDay(zone).toInstant())
@@ -196,8 +195,10 @@ object SQLInstant : DatabaseStructure(Updater.logger, databaseCredentials.instan
     suspend fun fetchGames(request: GamesRequest): Pair<Int, List<GameRow>> {
         ensureReadIndexes()
 
-        val where = mutableListOf("p.snapshot_ts = ?")
-        val args = mutableListOf<Any>(request.snapshotTs)
+        val where = mutableListOf<String>()
+        val args = mutableListOf<Any>()
+
+        args += request.snapshotTs
 
         if (!request.type.equals("all", ignoreCase = true)) {
             where += "m.type = ?"
@@ -220,8 +221,8 @@ object SQLInstant : DatabaseStructure(Updater.logger, databaseCredentials.instan
             args += it
         }
         request.inStock?.let {
-            where += "m.in_stock = ?"
-            args += it
+            where += if (it) "p.snapshot_ts = ?" else "p.snapshot_ts < ?"
+            args += request.snapshotTs
         }
 
         val sortColumn = when (request.sortBy) {
@@ -237,14 +238,19 @@ object SQLInstant : DatabaseStructure(Updater.logger, databaseCredentials.instan
         }
         val offset = (request.page - 1) * request.pageSize
 
-        val whereClause = where.joinToString(" AND ")
-
-        val countSql = """
-            SELECT COUNT(*) AS total
-            FROM snapshot_prices p
-            JOIN game_meta m ON m.id = p.id
-            WHERE $whereClause
+        val joinClause = """
+            FROM game_meta m
+            JOIN snapshot_prices p
+              ON p.id = m.id
+             AND p.snapshot_ts = (
+                 SELECT MAX(p2.snapshot_ts)
+                 FROM snapshot_prices p2
+                 WHERE p2.id = m.id AND p2.snapshot_ts <= ?
+             )
         """.trimIndent()
+        val whereClause = if (where.isEmpty()) "" else "WHERE " + where.joinToString(" AND ")
+
+        val countSql = "SELECT COUNT(*) AS total\n$joinClause\n$whereClause"
         val total = buildStatement(countSql).use { statement ->
             args.forEachIndexed { index, value -> statement.setAny(index + 1, value) }
             statement.executeQuery().use { rs ->
@@ -265,19 +271,18 @@ object SQLInstant : DatabaseStructure(Updater.logger, databaseCredentials.instan
                     m.topseller,
                     m.preorder,
                     m.giftcard,
-                    m.in_stock,
                     m.steam_id,
                     p.retail,
                     p.price,
                     p.discount,
                     p.abs_discount
-                FROM snapshot_prices p
-                JOIN game_meta m ON m.id = p.id
-                WHERE $whereClause
+                $joinClause
+                $whereClause
                 ORDER BY $sortColumn $sortDirection, m.id ASC
                 LIMIT ? OFFSET ?
             """.trimIndent()
 
+        val requestedTs = request.snapshotTs
         val rows = mutableListOf<GameRow>()
         buildStatement(rowsSql).use { statement ->
             var argIndex = 1
@@ -292,8 +297,9 @@ object SQLInstant : DatabaseStructure(Updater.logger, databaseCredentials.instan
                 while (rs.next()) {
                     val steamIdRaw = rs.getInt("steam_id")
                     val steamId = if (rs.wasNull()) null else steamIdRaw
+                    val effectiveTs = rs.getTimestamp("snapshot_ts")
                     rows += GameRow(
-                        snapshotTs = rs.getTimestamp("snapshot_ts").toInstant().toString(),
+                        snapshotTs = effectiveTs.toInstant().toString(),
                         id = rs.getInt("id"),
                         name = rs.getString("name"),
                         type = rs.getString("type"),
@@ -303,7 +309,7 @@ object SQLInstant : DatabaseStructure(Updater.logger, databaseCredentials.instan
                         topseller = rs.getBoolean("topseller"),
                         preorder = rs.getBoolean("preorder"),
                         giftcard = rs.getBoolean("giftcard"),
-                        inStock = rs.getBoolean("in_stock"),
+                        inStock = effectiveTs == requestedTs,
                         steamId = steamId,
                         retail = rs.getDouble("retail"),
                         price = rs.getDouble("price"),
@@ -462,7 +468,7 @@ object SQLInstant : DatabaseStructure(Updater.logger, databaseCredentials.instan
                         steam_id = VALUES(steam_id)
                 """.trimIndent()
             ).use { statement ->
-                gamesInStock.forEach { game ->
+                games.forEach { game ->
                     statement.setInt(1, game.id)
                     statement.setString(2, game.name)
                     statement.setString(3, game.type)
@@ -491,7 +497,7 @@ object SQLInstant : DatabaseStructure(Updater.logger, databaseCredentials.instan
                         discount = VALUES(discount)
                 """.trimIndent()
             ).use { statement ->
-                games.forEach { game ->
+                gamesInStock.forEach { game ->
                     statement.setTimestamp(1, snapshotTimestamp)
                     statement.setInt(2, game.id)
                     statement.setDouble(3, game.price)
